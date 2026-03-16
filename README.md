@@ -121,6 +121,7 @@ out2 = model(**inputs)
 print(out2.logits)  # shadow-only logits
 ```
 
+
 ### Saving / Loading
 
 #### Save
@@ -144,6 +145,14 @@ from shadow_peft import ShadowPeftModel
 
 base = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-0.6B")
 model = ShadowPeftModel.from_pretrained(base, "/path/to/save", is_trainable=False)
+```
+
+
+### Export Shadow
+
+```python
+shadow_only = model.export_shadow()
+shadow_only.save_pretrained("/path/to/shadow_only_model")
 ```
 
 ### Notes / Limitations
