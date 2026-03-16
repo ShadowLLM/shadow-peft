@@ -126,6 +126,10 @@ class ShadowForCausalLM(nn.Module, GenerationMixin):
 
     main_input_name = "input_ids"
 
+    # Required by transformers ≥ 4.47 GenerationMixin._supports_default_dynamic_cache().
+    # False = standard stateless model (no special cache handling needed).
+    _is_stateful: bool = False
+
     def __init__(
         self,
         peft_model: ShadowPeftModel,

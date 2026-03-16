@@ -130,6 +130,9 @@ class AutoModelForCausalLMWithHiddenProjection(PreTrainedModel, GenerationMixin)
 
     config_class = AutoModelForCausalLMWithHiddenProjectionConfig
 
+    # Required by transformers ≥ 4.47 GenerationMixin._supports_default_dynamic_cache().
+    _is_stateful: bool = False
+
     def __init__(self, config: AutoModelForCausalLMWithHiddenProjectionConfig) -> None:
         super().__init__(config)
 
