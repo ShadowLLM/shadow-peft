@@ -151,7 +151,7 @@ model = ShadowPeftModel.from_pretrained(base, "/path/to/save", is_trainable=Fals
 ### Export Shadow
 
 ```python
-shadow_only = model.export_shadow()
+shadow_only = model.peft_model.export_shadow()
 shadow_only.save_pretrained("/path/to/shadow_only_model")
 ```
 

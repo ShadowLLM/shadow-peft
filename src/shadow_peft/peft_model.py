@@ -711,22 +711,59 @@ class ShadowPeftModel(nn.Module):
             if callable(tie_fn):
                 tie_fn()
         else:
-            # Export a normal task model with the *shadow* config/hidden size.
-            exported = self.base_model.__class__(shadow_cfg)
-            exported_backbone = _get_backbone(exported)
-            shadow_backbone = _get_backbone(self.shadow_model)
-            exported_backbone.load_state_dict(shadow_backbone.state_dict(), strict=False)
+            # Hidden sizes differ (e.g. 1024-dim shadow + 4096-dim base).
+            # If a trained shadow_hidden_projection is present (Linear, not Identity),
+            # bundle backbone + projection + base lm_head into
+            # AutoModelForCausalLMWithHiddenProjection so the checkpoint is fully
+            # self-contained and directly usable for shadow-only inference.
+            has_proj = (
+                isinstance(getattr(self, "shadow_hidden_projection", None), nn.Linear)
+                and base_head is not None
+            )
 
-            # Prefer explicit shadow embeddings if present; otherwise keep defaults.
-            shadow_embed = None
-            get_inp = getattr(self.shadow_model, "get_input_embeddings", None)
-            if callable(get_inp):
-                try:
-                    shadow_embed = get_inp()
-                except Exception:
-                    shadow_embed = None
-            if shadow_embed is not None:
-                exported.set_input_embeddings(deepcopy(shadow_embed))
+            if has_proj:
+                from .projected_causal_lm import AutoModelForCausalLMWithHiddenProjection
+
+                # Build a task model carrying the shadow backbone weights.
+                shadow_task = self.base_model.__class__(shadow_cfg)
+                exported_bb = _get_backbone(shadow_task)
+                shadow_bb   = _get_backbone(self.shadow_model)
+                exported_bb.load_state_dict(shadow_bb.state_dict(), strict=False)
+
+                # Restore shadow embed_tokens (may have been removed during training).
+                shadow_embed = None
+                get_inp = getattr(self.shadow_model, "get_input_embeddings", None)
+                if callable(get_inp):
+                    try:
+                        shadow_embed = get_inp()
+                    except Exception:
+                        shadow_embed = None
+                if shadow_embed is not None:
+                    shadow_task.set_input_embeddings(deepcopy(shadow_embed))
+
+                # Wrap backbone + trained projection + frozen lm_head.
+                exported = AutoModelForCausalLMWithHiddenProjection.wrap(
+                    shadow_model=shadow_task,
+                    shadow_hidden_projection=deepcopy(self.shadow_hidden_projection),
+                    lm_head=deepcopy(base_head),
+                    init_optimal_projection=False,  # keep the trained weights
+                )
+            else:
+                # Fallback: export a plain task model (backbone weights only).
+                exported = self.base_model.__class__(shadow_cfg)
+                exported_backbone = _get_backbone(exported)
+                shadow_backbone = _get_backbone(self.shadow_model)
+                exported_backbone.load_state_dict(shadow_backbone.state_dict(), strict=False)
+
+                shadow_embed = None
+                get_inp = getattr(self.shadow_model, "get_input_embeddings", None)
+                if callable(get_inp):
+                    try:
+                        shadow_embed = get_inp()
+                    except Exception:
+                        shadow_embed = None
+                if shadow_embed is not None:
+                    exported.set_input_embeddings(deepcopy(shadow_embed))
 
         # Match device/dtype to the base model's head/embeddings (preferred) or fall back.
         if target_device is None or target_dtype is None:
