@@ -12,8 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from safetensors.torch import load_file as safetensors_load_file
 from safetensors.torch import save_file as safetensors_save_file
-from transformers import GenerationConfig, PreTrainedModel
-from transformers.generation import GenerationMixin
+from transformers import GenerationConfig, GenerationMixin, PreTrainedModel
 from transformers.modeling_outputs import CausalLMOutputWithPast, SequenceClassifierOutput
 
 from .peft_model import ShadowPeftModel, _push_folder_to_hub, resolve_shadow_checkpoint_dir

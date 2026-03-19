@@ -7,8 +7,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import PretrainedConfig, PreTrainedModel
-from transformers.generation import GenerationMixin
+from transformers import GenerationMixin, PretrainedConfig, PreTrainedModel
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from .model_utils import _get_backbone
