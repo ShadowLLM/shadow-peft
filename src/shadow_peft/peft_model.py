@@ -873,6 +873,9 @@ class ShadowPeftModel(nn.Module):
         is_trainable: bool = False,
         shadow_model: PreTrainedModel | None = None,
     ) -> ShadowPeftModel:
+        trainable_parameter_names = None
+        if isinstance(shadow_model, AutoModelForCausalLMWithHiddenProjection) and is_trainable:
+            trainable_parameter_names = [n.replace("shadow_model.", "") for n, p in shadow_model.named_parameters() if p.requires_grad]
         ckpt_dir = resolve_shadow_checkpoint_dir(pretrained_shadow_path)
         cfg = ShadowConfig.from_pretrained(ckpt_dir)
         peft_model = cls(model, cfg, shadow_model=shadow_model)
@@ -889,11 +892,17 @@ class ShadowPeftModel(nn.Module):
             )
         peft_model.load_adapter_state_dict(state)
         peft_model.train(is_trainable)
-        for p in peft_model.parameters():
-            p.requires_grad = False
+
         if is_trainable:
-            for p in peft_model.shadow_model.parameters():
-                p.requires_grad = True
+            if trainable_parameter_names:
+                for n, p in peft_model.shadow_model.named_parameters():
+                    if n in trainable_parameter_names:
+                        p.requires_grad = True
+                    else:
+                        p.requires_grad = False
+            else:
+                for p in peft_model.shadow_model.parameters():
+                    p.requires_grad = True
             # Train projection when present (needed for hidden-size mismatch).
             for p in peft_model.shadow_hidden_projection.parameters():
                 p.requires_grad = True
@@ -901,6 +910,9 @@ class ShadowPeftModel(nn.Module):
                 p.requires_grad = True
             for p in peft_model.shadow_update_model.parameters():
                 p.requires_grad = True
+        else:
+            for p in peft_model.parameters():
+                p.requires_grad = False
         return peft_model
 
 
