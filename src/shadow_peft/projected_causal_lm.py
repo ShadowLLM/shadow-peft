@@ -206,6 +206,11 @@ class AutoModelForCausalLMWithHiddenProjection(PreTrainedModel, GenerationMixin)
         except Exception:
             pass
 
+        # Required by transformers >=4.57: post_init() is no longer called
+        # automatically by PreTrainedModel.__init__; each subclass must call it.
+        # It sets all_tied_weights_keys (and other attributes) used during loading.
+        self.post_init()
+
     @classmethod
     def from_pretrained(
         cls,
@@ -385,10 +390,11 @@ class AutoModelForCausalLMWithHiddenProjection(PreTrainedModel, GenerationMixin)
     def set_output_embeddings(self, new_embeddings):
         self.lm_head = new_embeddings
 
-    def tie_weights(self):
+    def tie_weights(self, **kwargs):
         """
         Override to prevent automatic weight tying.
         Our lm_head and embeddings are intentionally separate (different hidden sizes).
+        **kwargs absorbs new parameters added in transformers >= 4.57 (e.g. recompute_mapping).
         """
         pass
 

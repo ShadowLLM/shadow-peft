@@ -59,14 +59,6 @@ from transformers import (
 )
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-os.environ["HF_HOME"] = "/sharedata/lxm/.cache"
-
-# Add ShadowPEFT to path
-_HERE = Path(__file__).parent
-_SHADOW_PEFT_SRC = _HERE.parent / "ShadowPEFT" / "src"
-if str(_SHADOW_PEFT_SRC) not in sys.path:
-    sys.path.insert(0, str(_SHADOW_PEFT_SRC))
-
 from shadow_peft import AutoModelForCausalLMWithHiddenProjection
 
 logging.basicConfig(

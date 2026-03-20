@@ -17,16 +17,11 @@ from typing import Dict, List, Optional
 
 sys.dont_write_bytecode = True  # avoid __pycache__ permission issues in some environments
 
-# Make `shadow_peft` importable without requiring an editable install.
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_SHADOW_PEFT_SRC = os.path.abspath(os.path.join(_HERE, "..", "ShadowPEFT", "src"))
-if _SHADOW_PEFT_SRC not in sys.path:
-    sys.path.insert(0, _SHADOW_PEFT_SRC)
-
 import evaluate
 import numpy as np
 import torch
 import torch.nn.functional as F
+import shadow_peft
 from peft import LoraConfig, TaskType, get_peft_model
 from transformers import (
     AutoModelForCausalLM,
@@ -1614,7 +1609,7 @@ def generation_lora(args, tokenizer, datasets):
         warmup_ratio=args.warmup_ratio,
         report_to=args.report_to,
         run_name=_make_run_name(args, f"{getattr(args, 'peft_method', 'lora')}-gen"),
-        save_safetensors=False,
+        # save_safetensors=False,
         fp16=args.fp16,
         bf16=args.bf16,
     )
@@ -1656,7 +1651,7 @@ def generation_shadow(args, tokenizer, datasets):
         warmup_ratio=args.warmup_ratio,
         report_to=args.report_to,
         run_name=_make_run_name(args, "shadow_peft-gen"),
-        save_safetensors=False,
+        # save_safetensors=False,
         fp16=args.fp16,
         bf16=args.bf16,
     )
@@ -1732,7 +1727,7 @@ def gsm8k_lora(args, tokenizer, datasets: GSM8KDatasetBundle):
         warmup_ratio=args.warmup_ratio,
         report_to=args.report_to,
         run_name=_make_run_name(args, f"{getattr(args, 'peft_method', 'lora')}-gsm8k"),
-        save_safetensors=False,
+        # save_safetensors=False,
         fp16=args.fp16,
         bf16=args.bf16,
         max_length=args.max_seq_length,
@@ -1793,7 +1788,7 @@ def gsm8k_shadow(args, tokenizer, datasets: GSM8KDatasetBundle):
         warmup_ratio=args.warmup_ratio,
         report_to=args.report_to,
         run_name=_make_run_name(args, "shadow_peft-gsm8k"),
-        save_safetensors=False,
+        # save_safetensors=False,
         fp16=args.fp16,
         bf16=args.bf16,
         max_length=args.max_seq_length,
@@ -1877,7 +1872,7 @@ def squad_v2_lora(args, tokenizer, datasets: SquadV2DatasetBundle):
         warmup_ratio=args.warmup_ratio,
         report_to=args.report_to,
         run_name=_make_run_name(args, f"{getattr(args, 'peft_method', 'lora')}-squad_v2"),
-        save_safetensors=False,
+        # save_safetensors=False,
         fp16=args.fp16,
         bf16=args.bf16,
         max_length=args.max_seq_length,
@@ -1938,7 +1933,7 @@ def squad_v2_shadow(args, tokenizer, datasets: SquadV2DatasetBundle):
         warmup_ratio=args.warmup_ratio,
         report_to=args.report_to,
         run_name=_make_run_name(args, "shadow_peft-squad_v2"),
-        save_safetensors=False,
+        # save_safetensors=False,
         fp16=args.fp16,
         bf16=args.bf16,
         max_length=args.max_seq_length,
@@ -2017,7 +2012,7 @@ def mmlu_lora(args, tokenizer, datasets: MMLUDatasetBundle):
         warmup_ratio=args.warmup_ratio,
         report_to=args.report_to,
         run_name=_make_run_name(args, f"{getattr(args, 'peft_method', 'lora')}-mmlu"),
-        save_safetensors=False,
+        # save_safetensors=False,
         fp16=args.fp16,
         bf16=args.bf16,
         max_length=args.max_seq_length,
@@ -2077,7 +2072,7 @@ def mmlu_shadow(args, tokenizer, datasets: MMLUDatasetBundle):
         warmup_ratio=args.warmup_ratio,
         report_to=args.report_to,
         run_name=_make_run_name(args, "shadow_peft-mmlu"),
-        save_safetensors=False,
+        # save_safetensors=False,
         fp16=args.fp16,
         bf16=args.bf16,
         max_length=args.max_seq_length,
@@ -2176,7 +2171,7 @@ def classification_lora(args, tokenizer, datasets: ClassificationDatasetBundle):
         warmup_ratio=args.warmup_ratio,
         report_to=args.report_to,
         run_name=_make_run_name(args, f"{getattr(args, 'peft_method', 'lora')}-cls"),
-        save_safetensors=False,
+        # save_safetensors=False,
         fp16=bool(args.fp16),
         bf16=bool(args.bf16),
         # ShadowPEFT task wrappers use `*args/**kwargs` forwards, so Trainer can't infer
@@ -2268,7 +2263,7 @@ def classification_shadow(args, tokenizer, datasets: ClassificationDatasetBundle
         warmup_ratio=args.warmup_ratio,
         report_to=args.report_to,
         run_name=_make_run_name(args, "shadow_peft-cls"),
-        save_safetensors=False,
+        # save_safetensors=False,
         fp16=bool(args.fp16),
         bf16=bool(args.bf16),
         remove_unused_columns=False,
