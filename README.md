@@ -1,6 +1,4 @@
-# Shadow-PEFT
-
-Shadow Efficient Tuning for decoder-only LLMs (PEFT-style adapter).
+# ShadowPEFT
 
 ### Supported LLMs
 
