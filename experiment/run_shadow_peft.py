@@ -36,7 +36,7 @@ from transformers import (
 from transformers.trainer_utils import EvalLoopOutput
 
 try:
-    from trl import GRPOConfig, GRPOTrainer, SFTConfig, SFTTrainer
+    from trl import SFTConfig, SFTTrainer
 except ImportError as exc:  # pragma: no cover
     raise ImportError(
         "The `trl` package is required for generation tasks. Install it with `pip install trl`."
@@ -154,6 +154,18 @@ CLASSIFICATION_SUITE = [
         "label_column": "label",
         "max_seq_length": 256,
         "shadow_alpha": 4.0,
+        "lora_target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
+    },
+    {
+        "id": "20_newsgroups",
+        "dataset_name": "SetFit/20_newsgroups",
+        "dataset_config": None,
+        "train_split": "train",
+        "eval_split": "test",
+        "text_column": "text",
+        "label_column": "label",
+        "max_seq_length": 256,
+        "shadow_alpha": 2.0,
         "lora_target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
     },
     {
@@ -2203,17 +2215,23 @@ def classification_shadow(args, tokenizer, datasets: ClassificationDatasetBundle
     _sync_pad_token(base_model, tokenizer)
     shadow_model = None
     if getattr(args, "pretrained_shadow_model_name", None):
-        try:
-            shadow_model = AutoModelForSequenceClassification.from_pretrained(
-                args.pretrained_shadow_model_name,
-                num_labels=len(datasets.label2id),
-                id2label=datasets.id2label,
-                label2id=datasets.label2id,
-            )
-            _set_attn_impl(shadow_model, args.attn_implementation)
-        except Exception as e:
-            print(f"Error loading shadow model: {e}")
-            shadow_model = prepare_causal_model(args.pretrained_shadow_model_name, args.attn_implementation)
+        # Use prepare_causal_model first so that AutoModelForCausalLMWithHiddenProjection
+        # (projected shadow models) are detected and loaded correctly without triggering
+        # an AutoModelForSequenceClassification load error.
+        shadow_model = prepare_causal_model(args.pretrained_shadow_model_name, args.attn_implementation)
+        from shadow_peft import AutoModelForCausalLMWithHiddenProjection as _ProjCausalLM
+        if not isinstance(shadow_model, _ProjCausalLM):
+            # Regular causal model: try to reload with a classification head.
+            try:
+                shadow_model = AutoModelForSequenceClassification.from_pretrained(
+                    args.pretrained_shadow_model_name,
+                    num_labels=len(datasets.label2id),
+                    id2label=datasets.id2label,
+                    label2id=datasets.label2id,
+                )
+            except Exception as e:
+                print(f"Warning: could not reload shadow as SeqCls ({e}), using causal model.")
+        _set_attn_impl(shadow_model, args.attn_implementation)
         _sync_pad_token(shadow_model, tokenizer)
         if int(getattr(args, "remove_shadow_embed_tokens", 0) or 0) == 1:
             shadow_model = prepare_shadow_model(shadow_model, remove_embed_tokens=True)

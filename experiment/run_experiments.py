@@ -67,7 +67,6 @@ MMLU_SUITE = [
     {
         "id": "mmlu_full",
         "mmlu_subset": "all",  # Train on auxiliary set, evaluate on every subset
-        "model_name": "Qwen/Qwen3-0.6B",
         "max_seq_length": 512,
     }
 ]
@@ -78,7 +77,6 @@ GSM8K_SUITE = [
     {
         "id": "gsm8k_main",
         "gsm8k_subset": "main",
-        "model_name": "Qwen/Qwen3-0.6B",
         "max_seq_length": 512,
     }
 ]

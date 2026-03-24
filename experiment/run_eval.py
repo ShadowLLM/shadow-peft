@@ -5,6 +5,8 @@ import copy
 import json
 import os
 import re
+import sys
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import torch
@@ -12,20 +14,15 @@ from peft import PeftModel
 from datasets import load_dataset
 
 # Reuse dataset builders + trainers + model constructors from run_experiments
-from run_experiments import (  # noqa: F401
+from run_shadow_peft import (  # noqa: F401
     GSM8K_SUITE,
     MMLU_SUITE,
-    DEFAULT_MMLU_GENERATION_TOKENS,
-    DEFAULT_GSM8K_GENERATION_TOKENS,
-    DEFAULT_SQUAD_V2_GENERATION_TOKENS,
     GSM8KDataCollator,
     MMLUDataCollator,
     SquadV2DataCollator,
     GSM8KTrainer,
     MMLUTrainer,
     SquadV2Trainer,
-    ShadowForCausalLM,
-    ShadowModel,
     _evaluate_mmlu_subsets,
     _pick_reference_eval_dataset,
     _resolve_mmlu_eval_subsets,
@@ -38,6 +35,7 @@ from run_experiments import (  # noqa: F401
     SFTConfig,
     set_seed,
 )
+from shadow_peft import ShadowForCausalLM
 
 _BOXED_ANSWER_RE = re.compile(r"\\boxed\s*\{\s*([^}]*)\s*\}")
 _NUMBER_RE = re.compile(r"-?\d+(?:,\d{3})*(?:\.\d+)?")
@@ -87,7 +85,6 @@ def _patch_gsm8k_extractor_for_base_eval():
 SQUAD_V2_SUITE = [
     {
         "id": "squad_v2",
-        "model_name": "Qwen/Qwen3-0.6B",
         "max_seq_length": 512,
     }
 ]
@@ -192,22 +189,15 @@ def load_eval_model(args, tokenizer):
         return model
 
     if args.mode == "shadow":
+        if not args.checkpoint_dir:
+            raise ValueError("--checkpoint_dir is required for --mode shadow (checkpoint directory).")
         base = prepare_causal_model(args.model_name, args.attn_implementation)
         _sync_pad_token(base, tokenizer)
-        shadow_model = ShadowModel(
-            base_model=base,
-            num_shadow_layers=1,
-            intermediate_size=128,
-            num_alpha_heads=8,
+        model = ShadowForCausalLM.from_pretrained(
+            base,
+            args.checkpoint_dir,
+            is_trainable=False,
         )
-        model = ShadowForCausalLM(shadow_model=shadow_model)
-        if args.checkpoint_dir:
-            state = _load_state_dict_from_dir(args.checkpoint_dir)
-            missing, unexpected = model.load_state_dict(state, strict=False)
-            if missing:
-                print(f"[run_eval] Warning: missing keys when loading shadow checkpoint (showing up to 20): {missing[:20]}")
-            if unexpected:
-                print(f"[run_eval] Warning: unexpected keys when loading shadow checkpoint (showing up to 20): {unexpected[:20]}")
         return model
 
     raise ValueError(f"Unknown mode: {args.mode}")
@@ -224,7 +214,7 @@ def _make_eval_args(args: argparse.Namespace, run_name: str) -> SFTConfig:
         fp16=bool(args.fp16),
         remove_unused_columns=False,
         max_length=args.max_seq_length,
-        save_safetensors=False,
+        # save_safetensors=False,
     )
     setattr(eval_args, "generation_max_length", getattr(args, "generation_max_length", None))
     setattr(eval_args, "print_shadow_output", bool(getattr(args, "print_shadow_output", 0)))
@@ -452,6 +442,8 @@ def run_suite(args: argparse.Namespace):
         for spec in specs:
             run_args = copy.deepcopy(args)
             run_args.task = task
+            run_args.model_name = args.model_name
+            print(f"run_args.model_name: {run_args.model_name}")
             for k, v in spec.items():
                 if k == "id":
                     continue

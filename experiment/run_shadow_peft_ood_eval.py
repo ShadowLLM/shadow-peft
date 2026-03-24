@@ -21,12 +21,6 @@ import torch
 from datasets import load_dataset
 from peft import LoraConfig, PeftModel, get_peft_model
 from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
-
-# Add shadow_peft to path
-SHADOW_PEFT_PATH = Path(__file__).parent.parent / "ShadowPEFT" / "src"
-if str(SHADOW_PEFT_PATH) not in sys.path:
-    sys.path.insert(0, str(SHADOW_PEFT_PATH))
-
 from shadow_peft import ShadowConfig, ShadowForCausalLM
 
 # Import data utilities for consistent task prompts
@@ -38,10 +32,7 @@ from data_utils import (
 )
 
 # Import trainers and collators from run_experiments
-from run_experiments import (
-    DEFAULT_GSM8K_GENERATION_TOKENS,
-    DEFAULT_MMLU_GENERATION_TOKENS,
-    DEFAULT_SQUAD_V2_GENERATION_TOKENS,
+from run_shadow_peft import (
     GSM8K_SUITE,
     MMLU_SUITE,
     GSM8KDataCollator,
