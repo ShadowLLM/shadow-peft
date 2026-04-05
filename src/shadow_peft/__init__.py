@@ -17,4 +17,16 @@ __all__ = [
     "prepare_shadow_model",
 ]
 
+# Register with transformers' Auto classes so that checkpoints with
+# model_type="causal_lm_with_hidden_projection" are loaded automatically
+# via AutoConfig.from_pretrained / AutoModelForCausalLM.from_pretrained.
+from transformers import AutoConfig, AutoModelForCausalLM
 
+AutoConfig.register(
+    AutoModelForCausalLMWithHiddenProjectionConfig.model_type,
+    AutoModelForCausalLMWithHiddenProjectionConfig,
+)
+AutoModelForCausalLM.register(
+    AutoModelForCausalLMWithHiddenProjectionConfig,
+    AutoModelForCausalLMWithHiddenProjection,
+)

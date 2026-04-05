@@ -132,6 +132,11 @@ class AutoModelForCausalLMWithHiddenProjection(PreTrainedModel, GenerationMixin)
     # Required by transformers ≥ 4.47 GenerationMixin._supports_default_dynamic_cache().
     _is_stateful: bool = False
 
+    # The inner backbone (e.g. Qwen3Model) handles all attention ops.
+    # Declaring SDPA support here lets callers pass attn_implementation="sdpa"
+    # so the inner model is initialised with the SDPA kernel from the start.
+    _supports_sdpa: bool = True
+
     def __init__(self, config: AutoModelForCausalLMWithHiddenProjectionConfig) -> None:
         super().__init__(config)
 
@@ -152,6 +157,15 @@ class AutoModelForCausalLMWithHiddenProjection(PreTrainedModel, GenerationMixin)
                 f"shadow_model_config_class must be a PretrainedConfig, got {cfg_cls} from {config.shadow_model_config_class}"
             )
         shadow_cfg = cfg_cls.from_dict(config.shadow_model_config)
+
+        # Propagate attn_implementation from the outer config so the inner backbone
+        # (e.g. Qwen3Model) is initialised with the same attention backend (e.g. "sdpa").
+        # After super().__init__() the resolved value is stored in _attn_implementation_internal.
+        _attn_impl = getattr(config, "_attn_implementation_internal", None) or getattr(
+            config, "_attn_implementation", None
+        )
+        if _attn_impl:
+            shadow_cfg._attn_implementation = _attn_impl
 
         # Infer shadow hidden size from config FIRST (before instantiating any models).
         shadow_hidden_size = int(getattr(shadow_cfg, "hidden_size", getattr(shadow_cfg, "n_embd", 0)))
@@ -205,6 +219,11 @@ class AutoModelForCausalLMWithHiddenProjection(PreTrainedModel, GenerationMixin)
                 self._modules["lm_head"] = lm
         except Exception:
             pass
+
+        # Required by transformers >=4.57: post_init() is no longer called
+        # automatically by PreTrainedModel.__init__; each subclass must call it.
+        # It sets all_tied_weights_keys (and other attributes) used during loading.
+        self.post_init()
 
     @classmethod
     def from_pretrained(
@@ -385,10 +404,11 @@ class AutoModelForCausalLMWithHiddenProjection(PreTrainedModel, GenerationMixin)
     def set_output_embeddings(self, new_embeddings):
         self.lm_head = new_embeddings
 
-    def tie_weights(self):
+    def tie_weights(self, **kwargs):
         """
         Override to prevent automatic weight tying.
         Our lm_head and embeddings are intentionally separate (different hidden sizes).
+        **kwargs absorbs new parameters added in transformers >= 4.57 (e.g. recompute_mapping).
         """
         pass
 
