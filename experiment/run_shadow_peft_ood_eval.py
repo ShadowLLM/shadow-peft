@@ -20,7 +20,8 @@ import numpy as np
 import torch
 from datasets import load_dataset
 from peft import LoraConfig, PeftModel, get_peft_model
-from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.trainer_utils import EvalLoopOutput
 from shadow_peft import ShadowConfig, ShadowForCausalLM
 
 # Import data utilities for consistent task prompts
@@ -31,8 +32,9 @@ from data_utils import (
     extract_gsm8k_final_answer,
 )
 
-# Import trainers and collators from run_experiments
+# Import trainers and collators from run_shadow_peft
 from run_shadow_peft import (
+    DEFAULT_MMLU_GENERATION_TOKENS,
     GSM8K_SUITE,
     MMLU_SUITE,
     GSM8KDataCollator,
@@ -46,6 +48,10 @@ from run_shadow_peft import (
     _resolve_mmlu_eval_subsets,
     set_seed,
     _clean_generated_text,
+    extract_answer_from_text,
+    generate_from_shadow,
+    _shifted_ce_loss,
+    SFTConfig,
 )
 
 # Regex patterns for extracting boxed answers
@@ -60,6 +66,162 @@ SQUAD_V2_SUITE = [
         "max_seq_length": 512,
     }
 ]
+
+
+class OODMMLUTrainer(MMLUTrainer):
+    """Restore answer-only MMLU generation while staying on run_shadow_peft."""
+
+    def evaluation_loop(self, dataloader, description, prediction_loss_only=None, ignore_keys=None, metric_key_prefix="eval"):
+        model = self._wrap_model(self.model, training=False, dataloader=dataloader)
+        model.eval()
+
+        all_predictions = []
+        all_shadow_predictions = []
+        all_labels = []
+        total_loss = 0.0
+        total_shadow_loss = 0.0
+        num_samples = 0
+
+        actual_model = model.module if hasattr(model, "module") else model
+        do_shadow_gen = bool(getattr(self.args, "print_shadow_output", False))
+
+        compute_dtype = torch.bfloat16 if self.args.bf16 else (torch.float16 if self.args.fp16 else torch.float32)
+        max_new_tokens = getattr(self.args, "generation_max_length", None)
+        if max_new_tokens is None:
+            max_new_tokens = DEFAULT_MMLU_GENERATION_TOKENS
+        pad_token_id = getattr(
+            self.processing_class, "pad_token_id", getattr(self.model.config, "pad_token_id", None)
+        )
+        eos_token_id = getattr(
+            self.processing_class, "eos_token_id", getattr(self.model.config, "eos_token_id", None)
+        )
+        if pad_token_id is None and eos_token_id is not None:
+            pad_token_id = eos_token_id
+
+        for step, inputs in enumerate(dataloader):
+            inputs = self._prepare_inputs(inputs)
+            prompt_input_ids = inputs.pop("prompt_input_ids", None)
+            prompt_attention_mask = inputs.pop("prompt_attention_mask", None)
+            answer_letters = inputs.pop("answer_letters", None)
+            answer_indices = inputs.pop("answer_indices", None)
+
+            with torch.no_grad():
+                outputs = model(**inputs)
+                if outputs.loss is not None:
+                    total_loss += outputs.loss.item()
+
+                if getattr(outputs, "shadow_logits", None) is not None:
+                    labels = inputs.get("labels")
+                    if labels is not None:
+                        total_shadow_loss += float(_shifted_ce_loss(outputs.shadow_logits, labels).item())
+
+                input_ids = inputs["input_ids"]
+                attention_mask = inputs["attention_mask"]
+                batch_size = input_ids.shape[0]
+
+                for i in range(batch_size):
+                    if prompt_input_ids is not None and prompt_attention_mask is not None:
+                        gen_input_ids = prompt_input_ids[i:i+1, :]
+                        gen_attention_mask = prompt_attention_mask[i:i+1, :]
+                    else:
+                        gen_input_ids = input_ids[i:i+1, :]
+                        gen_attention_mask = attention_mask[i:i+1, :]
+
+                    if gen_attention_mask is not None:
+                        true_len = int(gen_attention_mask.long().sum(dim=-1).item())
+                        true_len = max(true_len, 1)
+                        padding_side = getattr(self.processing_class, "padding_side", "right")
+                        if padding_side == "left":
+                            gen_input_ids = gen_input_ids[:, -true_len:]
+                            gen_attention_mask = gen_attention_mask[:, -true_len:]
+                        else:
+                            gen_input_ids = gen_input_ids[:, :true_len]
+                            gen_attention_mask = gen_attention_mask[:, :true_len]
+
+                    with torch.autocast(
+                        device_type="cuda",
+                        dtype=compute_dtype,
+                        enabled=bool(self.args.bf16 or self.args.fp16),
+                    ):
+                        gen_kwargs = {
+                            "input_ids": gen_input_ids,
+                            "attention_mask": gen_attention_mask,
+                            "max_new_tokens": max_new_tokens,
+                            "do_sample": False,
+                            "pad_token_id": pad_token_id,
+                            "eos_token_id": eos_token_id,
+                            "use_cache": False,
+                        }
+                        if hasattr(self.processing_class, "thinking_tokens"):
+                            gen_kwargs["stop_strings"] = ["<think>", "<|im_start|>think"]
+                        generated = actual_model.generate(**gen_kwargs)
+
+                    prompt_length = gen_input_ids.shape[-1]
+                    new_tokens = generated[0, prompt_length:]
+                    generated_text_raw = self.processing_class.decode(new_tokens, skip_special_tokens=True)
+                    generated_text = _clean_generated_text(generated_text_raw)
+                    predicted_answer = extract_answer_from_text(generated_text)
+                    all_predictions.append(predicted_answer.upper() if predicted_answer else "INVALID")
+
+                    shadow_generated_text = None
+                    if do_shadow_gen and hasattr(actual_model, "shadow_lm_head"):
+                        with torch.autocast(
+                            device_type="cuda",
+                            dtype=compute_dtype,
+                            enabled=bool(self.args.bf16 or self.args.fp16),
+                        ):
+                            shadow_generated_ids = generate_from_shadow(
+                                model=actual_model,
+                                input_ids=gen_input_ids,
+                                attention_mask=gen_attention_mask,
+                                max_new_tokens=max_new_tokens,
+                                pad_token_id=pad_token_id,
+                                eos_token_id=eos_token_id,
+                                use_cache=False,
+                            )
+                        shadow_generated_text_raw = self.processing_class.decode(
+                            shadow_generated_ids[0, prompt_length:],
+                            skip_special_tokens=True,
+                        )
+                        shadow_generated_text = _clean_generated_text(shadow_generated_text_raw)
+                        shadow_predicted = extract_answer_from_text(shadow_generated_text)
+                        all_shadow_predictions.append(shadow_predicted.upper() if shadow_predicted else "INVALID")
+
+                    if answer_letters and i < len(answer_letters) and answer_letters[i] is not None:
+                        true_answer = answer_letters[i].upper()
+                        all_labels.append(true_answer)
+                        if do_shadow_gen and shadow_generated_text is not None:
+                            shadow_pred = all_shadow_predictions[-1]
+                            shadow_info = f" | shadow_gen: '{shadow_generated_text}' | shadow_pred: {shadow_pred}"
+                        else:
+                            shadow_info = ""
+                        print(f"[Sample {num_samples}] generated: '{generated_text}' | predicted: {predicted_answer} | true: {true_answer}{shadow_info}")
+                    else:
+                        print(f"[Sample {num_samples}] Warning: No answer_letter found for sample {i}")
+
+                    num_samples += 1
+
+        correct = sum(1 for p, l in zip(all_predictions, all_labels) if p == l)
+        accuracy = correct / len(all_labels) if all_labels else 0.0
+        avg_loss = total_loss / (step + 1) if step >= 0 else 0.0
+
+        metrics = {
+            f"{metric_key_prefix}_loss": avg_loss,
+            f"{metric_key_prefix}_accuracy": accuracy,
+            f"{metric_key_prefix}_samples": num_samples,
+        }
+        if total_shadow_loss > 0:
+            metrics[f"{metric_key_prefix}_shadow_loss"] = total_shadow_loss / (step + 1)
+        if do_shadow_gen and all_shadow_predictions and all_labels:
+            shadow_correct = sum(1 for p, l in zip(all_shadow_predictions, all_labels) if p == l)
+            metrics[f"{metric_key_prefix}_shadow_accuracy"] = shadow_correct / len(all_labels)
+
+        return EvalLoopOutput(
+            predictions=all_predictions,
+            label_ids=all_labels,
+            metrics=metrics,
+            num_samples=num_samples,
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -204,12 +366,26 @@ def prepare_tokenizer(model_name_or_path: str) -> AutoTokenizer:
 
 def prepare_base_model(model_name: str, attn_implementation: str) -> AutoModelForCausalLM:
     """Load base causal LM model."""
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype=torch.bfloat16,
-        attn_implementation=attn_implementation,
-        trust_remote_code=True,
-    )
+    try:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.bfloat16,
+            attn_implementation=attn_implementation,
+            trust_remote_code=True,
+        )
+    except Exception as exc:
+        if attn_implementation != "flash_attention_2":
+            raise
+        print(
+            "[OOD Eval] flash_attention_2 unavailable; retrying with sdpa. "
+            f"Original error: {exc}"
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.bfloat16,
+            attn_implementation="sdpa",
+            trust_remote_code=True,
+        )
     return model
 
 
@@ -368,9 +544,9 @@ def _patch_gsm8k_extractor_for_boxed_eval():
     """
     Patch GSM8KTrainer to extract boxed answers for OOD evaluation.
     """
-    import run_experiments as _rex
+    import run_shadow_peft as _rsp
     
-    original = _rex.extract_gsm8k_answer_from_text
+    original = _rsp.extract_gsm8k_answer_from_text
     
     def _boxed_extractor(generated_text: str) -> str:
         # Clean the text first
@@ -378,8 +554,8 @@ def _patch_gsm8k_extractor_for_boxed_eval():
         # Extract from boxed format
         return extract_gsm8k_boxed_answer(cleaned)
     
-    _rex.extract_gsm8k_answer_from_text = _boxed_extractor
-    return _rex, original
+    _rsp.extract_gsm8k_answer_from_text = _boxed_extractor
+    return _rsp, original
 
 
 def _gsm8k_make_boxed_demos(
@@ -535,9 +711,9 @@ def add_few_shot_to_datasets(train_dataset, eval_dataset, k_shot: int, seed: int
     return train_dataset, eval_dataset, few_shot_indices
 
 
-def make_eval_args(args: argparse.Namespace, run_name: str) -> TrainingArguments:
-    """Create TrainingArguments for evaluation."""
-    eval_args = TrainingArguments(
+def make_eval_args(args: argparse.Namespace, run_name: str) -> SFTConfig:
+    """Create SFTConfig for evaluation."""
+    eval_args = SFTConfig(
         output_dir=args.output_dir,
         per_device_eval_batch_size=args.per_device_eval_batch_size,
         eval_accumulation_steps=args.eval_accumulation_steps,
@@ -546,13 +722,11 @@ def make_eval_args(args: argparse.Namespace, run_name: str) -> TrainingArguments
         bf16=bool(args.bf16),
         fp16=bool(args.fp16),
         remove_unused_columns=False,
-        dataloader_pin_memory=True,
-        dataloader_num_workers=0,
+        max_length=args.max_seq_length,
     )
     
     # Add custom attributes for generation
     setattr(eval_args, "generation_max_length", args.generation_max_length)
-    setattr(eval_args, "max_length", args.max_seq_length)
     
     return eval_args
 
@@ -584,7 +758,7 @@ def eval_mmlu(args: argparse.Namespace) -> Dict[str, Dict[str, Dict[str, float]]
     
     eval_reference_dataset = eval_ref
     
-    trainer = MMLUTrainer(
+    trainer = OODMMLUTrainer(
         model=model,
         args=make_eval_args(args, run_name=f"ood-eval-mmlu-{args.mode}"),
         train_dataset=train_ds,

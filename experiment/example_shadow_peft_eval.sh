@@ -3,7 +3,7 @@
 
 # Example 1: Evaluate a ShadowPEFT checkpoint on MMLU
 echo "=== Example 1: MMLU Evaluation ==="
-CUDA_VISIBLE_DEVICES=7 python run_shadow_peft_eval.py \
+CUDA_VISIBLE_DEVICES=3 python run_shadow_peft_eval.py \
   --task mmlu \
   --model_name Qwen/Qwen3-4B \
   --checkpoint_dir erin99/Qwen3-4B-MMLU-Shadow \
@@ -16,7 +16,7 @@ CUDA_VISIBLE_DEVICES=7 python run_shadow_peft_eval.py \
 
 # Example 2: Evaluate on GSM8K with thinking mode
 echo "=== Example 2: GSM8K Evaluation (Thinking Mode) ==="
-CUDA_VISIBLE_DEVICES=7 python run_shadow_peft_eval.py \
+CUDA_VISIBLE_DEVICES=3 python run_shadow_peft_eval.py \
   --task gsm8k \
   --model_name Qwen/Qwen3-4B \
   --checkpoint_dir erin99/Qwen3-4B-GSM8k-Shadow \

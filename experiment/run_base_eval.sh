@@ -5,7 +5,7 @@
 echo "=== 0.6B ==="
 
 37.34
-CUDA_VISIBLE_DEVICES=5 python run_eval.py \
+CUDA_VISIBLE_DEVICES=3 python run_eval.py \
   --mode base \
   --model_name Qwen/Qwen3-0.6B \
   --attn_implementation sdpa \
@@ -20,7 +20,7 @@ CUDA_VISIBLE_DEVICES=5 python run_eval.py \
 
 
 47.69
-CUDA_VISIBLE_DEVICES=6 python run_eval.py \
+CUDA_VISIBLE_DEVICES=2 python run_eval.py \
   --mode base \
   --model_name Qwen/Qwen3-0.6B \
   --attn_implementation sdpa \
@@ -71,7 +71,7 @@ CUDA_VISIBLE_DEVICES=2 python run_eval.py \
 
 # 4B
 67.54
-CUDA_VISIBLE_DEVICES=1 python run_eval.py \
+CUDA_VISIBLE_DEVICES=2 python run_eval.py \
   --mode base \
   --model_name Qwen/Qwen3-4B \
   --attn_implementation sdpa \
@@ -87,7 +87,7 @@ CUDA_VISIBLE_DEVICES=1 python run_eval.py \
 
 
 77.18
-CUDA_VISIBLE_DEVICES=5 python run_eval.py \
+CUDA_VISIBLE_DEVICES=2 python run_eval.py \
   --mode base \
   --model_name Qwen/Qwen3-4B \
   --attn_implementation sdpa \

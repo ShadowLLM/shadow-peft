@@ -5,24 +5,31 @@ import copy
 import json
 import os
 import re
-import sys
-from pathlib import Path
 from typing import Dict, List, Optional
 
 import torch
 from peft import PeftModel
 from datasets import load_dataset
+from transformers.trainer_utils import EvalLoopOutput
 
-# Reuse dataset builders + trainers + model constructors from run_experiments
+# Reuse dataset builders + trainers + model constructors from run_shadow_peft
 from run_shadow_peft import (  # noqa: F401
     GSM8K_SUITE,
     MMLU_SUITE,
+    DEFAULT_MMLU_GENERATION_TOKENS,
+    DEFAULT_GSM8K_GENERATION_TOKENS,
+    DEFAULT_SQUAD_V2_GENERATION_TOKENS,
     GSM8KDataCollator,
     MMLUDataCollator,
     SquadV2DataCollator,
     GSM8KTrainer,
     MMLUTrainer,
     SquadV2Trainer,
+    _clean_generated_text,
+    extract_answer_from_text,
+    generate_from_shadow,
+    _shifted_ce_loss,
+    ShadowForCausalLM,
     _evaluate_mmlu_subsets,
     _pick_reference_eval_dataset,
     _resolve_mmlu_eval_subsets,
@@ -35,7 +42,6 @@ from run_shadow_peft import (  # noqa: F401
     SFTConfig,
     set_seed,
 )
-from shadow_peft import ShadowForCausalLM
 
 _BOXED_ANSWER_RE = re.compile(r"\\boxed\s*\{\s*([^}]*)\s*\}")
 _NUMBER_RE = re.compile(r"-?\d+(?:,\d{3})*(?:\.\d+)?")
@@ -66,20 +72,20 @@ def extract_gsm8k_final_answer_base(text: str) -> str:
 
 def _patch_gsm8k_extractor_for_base_eval():
     """
-    GSM8KTrainer.evaluation_loop calls `run_experiments.extract_gsm8k_answer_from_text(...)`.
+    GSM8KTrainer.evaluation_loop calls `run_shadow_peft.extract_gsm8k_answer_from_text(...)`.
     For base-model eval we want to extract the boxed answer instead.
     """
-    import run_experiments as _rex
+    import run_shadow_peft as _rsp
 
-    original = _rex.extract_gsm8k_answer_from_text
+    original = _rsp.extract_gsm8k_answer_from_text
 
     def _boxed_extractor(generated_text: str) -> str:
-        # Keep the same cleaning behavior as run_experiments, then extract boxed answer.
-        cleaned = _rex._clean_generated_text(generated_text)
+        # Keep the same cleaning behavior as run_shadow_peft, then extract boxed answer.
+        cleaned = _rsp._clean_generated_text(generated_text)
         return extract_gsm8k_final_answer_base(cleaned)
 
-    _rex.extract_gsm8k_answer_from_text = _boxed_extractor
-    return _rex, original
+    _rsp.extract_gsm8k_answer_from_text = _boxed_extractor
+    return _rsp, original
 
 
 SQUAD_V2_SUITE = [
@@ -88,6 +94,182 @@ SQUAD_V2_SUITE = [
         "max_seq_length": 512,
     }
 ]
+
+
+class RunEvalMMLUTrainer(MMLUTrainer):
+    """
+    Keep run_eval.py on top of run_shadow_peft, but restore the old MMLU
+    generation behavior that suppresses explicit thinking blocks.
+    """
+
+    def evaluation_loop(self, dataloader, description, prediction_loss_only=None, ignore_keys=None, metric_key_prefix="eval"):
+        model = self._wrap_model(self.model, training=False, dataloader=dataloader)
+        model.eval()
+
+        all_predictions = []
+        all_shadow_predictions = []
+        all_labels = []
+        total_loss = 0.0
+        total_shadow_loss = 0.0
+        num_samples = 0
+
+        actual_model = model.module if hasattr(model, "module") else model
+        do_shadow_gen = bool(getattr(self.args, "print_shadow_output", False))
+
+        compute_dtype = torch.bfloat16 if self.args.bf16 else (torch.float16 if self.args.fp16 else torch.float32)
+        max_new_tokens = getattr(self.args, "generation_max_length", None)
+        if max_new_tokens is None:
+            max_new_tokens = DEFAULT_MMLU_GENERATION_TOKENS
+        pad_token_id = getattr(
+            self.processing_class, "pad_token_id", getattr(self.model.config, "pad_token_id", None)
+        )
+        eos_token_id = getattr(
+            self.processing_class, "eos_token_id", getattr(self.model.config, "eos_token_id", None)
+        )
+        if pad_token_id is None and eos_token_id is not None:
+            pad_token_id = eos_token_id
+
+        for step, inputs in enumerate(dataloader):
+            inputs = self._prepare_inputs(inputs)
+            prompt_input_ids = inputs.pop("prompt_input_ids", None)
+            prompt_attention_mask = inputs.pop("prompt_attention_mask", None)
+            answer_letters = inputs.pop("answer_letters", None)
+            answer_indices = inputs.pop("answer_indices", None)
+
+            with torch.no_grad():
+                outputs = model(**inputs)
+                if outputs.loss is not None:
+                    total_loss += outputs.loss.item()
+
+                if getattr(outputs, "shadow_logits", None) is not None:
+                    labels = inputs.get("labels")
+                    if labels is not None:
+                        total_shadow_loss += float(_shifted_ce_loss(outputs.shadow_logits, labels).item())
+
+                input_ids = inputs["input_ids"]
+                attention_mask = inputs["attention_mask"]
+                batch_size = input_ids.shape[0]
+
+                for i in range(batch_size):
+                    if prompt_input_ids is not None and prompt_attention_mask is not None:
+                        gen_input_ids = prompt_input_ids[i:i+1, :]
+                        gen_attention_mask = prompt_attention_mask[i:i+1, :]
+                    else:
+                        gen_input_ids = input_ids[i:i+1, :]
+                        gen_attention_mask = attention_mask[i:i+1, :]
+
+                    if gen_attention_mask is not None:
+                        true_len = int(gen_attention_mask.long().sum(dim=-1).item())
+                        true_len = max(true_len, 1)
+                        padding_side = getattr(self.processing_class, "padding_side", "right")
+                        if padding_side == "left":
+                            gen_input_ids = gen_input_ids[:, -true_len:]
+                            gen_attention_mask = gen_attention_mask[:, -true_len:]
+                        else:
+                            gen_input_ids = gen_input_ids[:, :true_len]
+                            gen_attention_mask = gen_attention_mask[:, :true_len]
+
+                    with torch.autocast(
+                        device_type="cuda",
+                        dtype=compute_dtype,
+                        enabled=bool(self.args.bf16 or self.args.fp16),
+                    ):
+                        gen_kwargs = {
+                            "input_ids": gen_input_ids,
+                            "attention_mask": gen_attention_mask,
+                            "max_new_tokens": max_new_tokens,
+                            "do_sample": False,
+                            "pad_token_id": pad_token_id,
+                            "eos_token_id": eos_token_id,
+                            "use_cache": False,
+                        }
+                        if hasattr(self.processing_class, "thinking_tokens"):
+                            gen_kwargs["stop_strings"] = ["<think>", "<|im_start|>think"]
+                        generated = actual_model.generate(**gen_kwargs)
+
+                    prompt_length = gen_input_ids.shape[-1]
+                    new_tokens = generated[0, prompt_length:]
+                    generated_text_raw = self.processing_class.decode(
+                        new_tokens,
+                        skip_special_tokens=True
+                    )
+                    generated_text = _clean_generated_text(generated_text_raw)
+                    predicted_answer = extract_answer_from_text(generated_text)
+                    if predicted_answer:
+                        all_predictions.append(predicted_answer.upper())
+                    else:
+                        all_predictions.append("INVALID")
+
+                    shadow_generated_text = None
+                    if do_shadow_gen and hasattr(actual_model, "shadow_lm_head"):
+                        with torch.autocast(
+                            device_type="cuda",
+                            dtype=compute_dtype,
+                            enabled=bool(self.args.bf16 or self.args.fp16),
+                        ):
+                            shadow_generated_ids = generate_from_shadow(
+                                model=actual_model,
+                                input_ids=gen_input_ids,
+                                attention_mask=gen_attention_mask,
+                                max_new_tokens=max_new_tokens,
+                                pad_token_id=pad_token_id,
+                                eos_token_id=eos_token_id,
+                                use_cache=False,
+                            )
+
+                            shadow_generated_text_raw = self.processing_class.decode(
+                                shadow_generated_ids[0, prompt_length:],
+                                skip_special_tokens=True
+                            )
+                            shadow_generated_text = _clean_generated_text(shadow_generated_text_raw)
+
+                        shadow_predicted = extract_answer_from_text(shadow_generated_text)
+                        if shadow_predicted:
+                            all_shadow_predictions.append(shadow_predicted.upper())
+                        else:
+                            all_shadow_predictions.append("INVALID")
+
+                    if answer_letters and i < len(answer_letters) and answer_letters[i] is not None:
+                        true_answer = answer_letters[i].upper()
+                        all_labels.append(true_answer)
+                        if do_shadow_gen and shadow_generated_text is not None:
+                            shadow_pred = all_shadow_predictions[-1]
+                            shadow_info = f" | shadow_gen: '{shadow_generated_text}' | shadow_pred: {shadow_pred}"
+                        else:
+                            shadow_info = ""
+                        print(f"[Sample {num_samples}] generated: '{generated_text}' | predicted: {predicted_answer} | true: {true_answer}{shadow_info}")
+                    else:
+                        print(f"[Sample {num_samples}] Warning: No answer_letter found for sample {i}")
+
+                    num_samples += 1
+
+        correct = sum(1 for p, l in zip(all_predictions, all_labels) if p == l)
+        accuracy = correct / len(all_labels) if all_labels else 0.0
+        avg_loss = total_loss / (step + 1) if step >= 0 else 0.0
+
+        metrics = {
+            f"{metric_key_prefix}_loss": avg_loss,
+            f"{metric_key_prefix}_accuracy": accuracy,
+            f"{metric_key_prefix}_samples": num_samples,
+        }
+
+        if total_shadow_loss > 0:
+            avg_shadow_loss = total_shadow_loss / (step + 1)
+            metrics[f"{metric_key_prefix}_shadow_loss"] = avg_shadow_loss
+
+        if do_shadow_gen and all_shadow_predictions and all_labels:
+            shadow_correct = sum(
+                1 for p, l in zip(all_shadow_predictions, all_labels) if p == l
+            )
+            shadow_accuracy = shadow_correct / len(all_labels)
+            metrics[f"{metric_key_prefix}_shadow_accuracy"] = shadow_accuracy
+
+        return EvalLoopOutput(
+            predictions=all_predictions,
+            label_ids=all_labels,
+            metrics=metrics,
+            num_samples=num_samples,
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -320,7 +502,7 @@ def eval_mmlu(args: argparse.Namespace) -> Dict[str, Dict[str, Dict[str, float]]
         use_few_shot=bool(args.use_few_shot),
     )
     eval_reference_dataset = _pick_reference_eval_dataset(datasets.eval_datasets)
-    trainer = MMLUTrainer(
+    trainer = RunEvalMMLUTrainer(
         model=model,
         args=_make_eval_args(args, run_name=f"eval-mmlu-{args.mode}"),
         train_dataset=datasets.train_dataset,
@@ -442,8 +624,6 @@ def run_suite(args: argparse.Namespace):
         for spec in specs:
             run_args = copy.deepcopy(args)
             run_args.task = task
-            run_args.model_name = args.model_name
-            print(f"run_args.model_name: {run_args.model_name}")
             for k, v in spec.items():
                 if k == "id":
                     continue
