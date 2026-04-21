@@ -461,7 +461,7 @@ CUDA_VISIBLE_DEVICES=7 python run_shadow_peft.py \
 ```
 
 
-### 0.5B [shadow-shadow]
+### 0.5B
 
 parameters: 523,226,112
 
@@ -521,7 +521,7 @@ CUDA_VISIBLE_DEVICES=0 python run_shadow_peft.py \
 ```
 
 
-### 0.2B [shadow-gsm8k-1]
+### 0.2B
 
 parameter: 184,025,088
 
@@ -545,7 +545,7 @@ CUDA_VISIBLE_DEVICES=2 python run_shadow_peft.py \
   --report_to none
 ```
 
-### 0.3B [shadow-gsm8k-2]
+### 0.3B
 parameter: 291,373,056
 
 ```bash
@@ -645,7 +645,7 @@ CUDA_VISIBLE_DEVICES=5 python run_shadow_peft.py \
 
 
 
-### 0.2B [shadow-gsm8k-2]
+### 0.2B
 
 parameters: 184,393,728
 
@@ -699,7 +699,7 @@ CUDA_VISIBLE_DEVICES=0 python run_shadow_peft.py \
 ```
 
 
-### 0.4B [shadow-lora]
+### 0.4B
 
 parameters: 410,591,232
 
@@ -727,7 +727,7 @@ CUDA_VISIBLE_DEVICES=0 python run_shadow_peft.py \
 
 
 
-### 0.5B [shadow-gsm8k-1]
+### 0.5B
 
 parameters: 502,603,776
 
@@ -785,7 +785,7 @@ CUDA_VISIBLE_DEVICES=5 python run_shadow_peft.py \
 ```
 
 
-### 0.2B [shadow-gsm8k-3]
+### 0.2B
 ```bash
 TRANSFORMERS_OFFLINE="1" CUDA_VISIBLE_DEVICES=1 python run_shadow_peft.py \
   --model_name Qwen/Qwen3-8B \
@@ -815,7 +815,7 @@ TRANSFORMERS_OFFLINE="1" CUDA_VISIBLE_DEVICES=1 python run_shadow_peft.py \
   --report_to none
 ```
 
-### 0.3B [shadow-gsm8k-2]
+### 0.3B
 
 ```bash
 CUDA_VISIBLE_DEVICES=5 python run_shadow_peft.py \
@@ -847,7 +847,7 @@ CUDA_VISIBLE_DEVICES=5 python run_shadow_peft.py \
 ```
 
 
-### 0.4B [shadow-lora]
+### 0.4B
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python run_shadow_peft.py \
@@ -878,7 +878,7 @@ CUDA_VISIBLE_DEVICES=0 python run_shadow_peft.py \
   --report_to none
 ```
 
-### 0.5B [shadow-gsm8k-1]
+### 0.5B
 
 ```bash
 CUDA_VISIBLE_DEVICES=2 python run_shadow_peft.py \

@@ -1,6 +1,10 @@
 # ShadowPEFT
 
-**ShadowPEFT** is a parameter-efficient fine-tuning (PEFT) library that augments a frozen large base model with a lightweight, centralized, and pretrainable *Shadow* network. The shadow network runs in parallel with the base model, injecting learned corrections into each decoder layer to enable effective adaptation with a fraction of the parameters. Once jointly trained with the base model, the shadow network can be detached and deployed independently.
+**ShadowPEFT** is a parameter-efficient fine-tuning (PEFT) framework that augments a frozen large base model with a lightweight, centralized, and pretrainable *Shadow* network. The shadow network runs in parallel with the base model, injecting learned corrections into each decoder layer to enable effective adaptation with a fraction of the parameters. Once jointly trained with the base model, the shadow network can be detached and deployed independently, benefiting edge computing scenarios.
+
+<p align="center">
+  <img src="assets/ShadowPEFT-preview.png" alt="ShadowPEFT Preview" />
+</p>
 
 ## How It Works
 
@@ -17,6 +21,10 @@ Input
          ...        [ShadowUpdate updates shadow state each step]
 ```
 
+<p align="center">
+  <img src="assets/ShadowPEFT-framework.png" alt="ShadowPEFT Framework" />
+</p>
+
 Three trainable components control the adaptation:
 
 - **Shadow Model** — a small copy of the base architecture with fewer/smaller layers
@@ -30,6 +38,7 @@ Three trainable components control the adaptation:
 - [Supported Models](#supported-models)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Examples](#examples)
 - [Usage](#usage)
   - [1. Implicit Shadow Model](#1-implicit-shadow-model)
   - [2. Explicit Shadow Model (cross-architecture)](#2-explicit-shadow-model-cross-architecture)
@@ -65,6 +74,12 @@ ShadowPEFT is **architecture-agnostic** for most Hugging Face *decoder-only* tra
 ## Installation
 
 ```bash
+uv pip install shadow-peft
+```
+
+or 
+
+```bash
 git clone https://github.com/ShadowLLM/shadow-peft.git
 cd shadow-peft
 uv pip install -e .
@@ -92,6 +107,17 @@ model.print_trainable_parameters()
 
 # Only shadow-related parameters are trainable; base model is frozen.
 ```
+
+---
+
+## Examples
+
+The `examples/` folder contains interactive playground notebooks for common ShadowPEFT workflows:
+
+- [`examples/different_llm_backbones_playground.ipynb`](examples/different_llm_backbones_playground.ipynb) - explore ShadowPEFT across different LLM backbones
+- [`examples/pretraining_shadow_via_pseudo_inverse.ipynb`](examples/pretraining_shadow_via_pseudo_inverse.ipynb) - initilize pretraining shadow model with the pseudo-inverse recipe
+- [`examples/robot_intent_playground.ipynb`](examples/robot_intent_playground.ipynb) - robot intent generation
+- [`examples/classification_playground.ipynb`](examples/classification_playground.ipynb) - experiment with sequence-classification workflows
 
 ---
 
@@ -317,7 +343,7 @@ shadow_model = AutoModelForCausalLMWithHiddenProjection.from_pretrained(
 )
 ```
 
-**Creating from scratch (wrapping existing models):**
+**Creating from scratch (wrapping existing models) via pseudo-inverse:**
 
 ```python
 import torch.nn as nn
@@ -380,7 +406,7 @@ ShadowConfig(
     #   Scale factor applied to the injection delta:
     #     hidden' = hidden + alpha * injection_delta
 
-    dropout: float = 0.1,
+    dropout: float = 0.2,
     #   Dropout applied inside injection and update adapters.
 
     # ── Modules to save ────────────────────────────────────────────────────

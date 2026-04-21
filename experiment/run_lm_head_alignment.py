@@ -51,6 +51,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from datasets import load_dataset
+from shadow_peft import AutoModelForCausalLMWithHiddenProjection
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -58,8 +59,6 @@ from transformers import (
     TrainingArguments,
 )
 from transformers.modeling_outputs import CausalLMOutputWithPast
-
-from shadow_peft import AutoModelForCausalLMWithHiddenProjection
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",

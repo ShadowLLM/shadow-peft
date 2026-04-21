@@ -20,7 +20,7 @@ class ShadowConfig:
     injection_hidden_size: int = 16
     gate_hidden_size: int = 10
     alpha: float = 0.1
-    dropout: float = 0.1
+    dropout: float = 0.2
 
     # Optional knobs for implicit shadow model sizing.
     shadow_intermediate_size: int | None = None
