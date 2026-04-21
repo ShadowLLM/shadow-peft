@@ -5,7 +5,6 @@ on:
   pull_request:
     branches:
       - main
-
 jobs:
   yamllint:
     name: Check YAML Syntax
