@@ -54,6 +54,8 @@ Three trainable components control the adaptation:
 - [Exporting the Shadow Model](#exporting-the-shadow-model)
 - [Training with HF Trainer](#training-with-hf-trainer)
 - [Notes and Limitations](#notes-and-limitations)
+- [Contributors](#contributors)
+- [Credits](#credits)
 
 ---
 
@@ -554,6 +556,18 @@ model.save_pretrained("./shadow-checkpoint")
 - **Base model is always frozen.** `ShadowPeftModel` sets `requires_grad=False` on all base model parameters during construction. If you need to fine-tune both base and shadow, manage `requires_grad` manually after wrapping.
 - **Minimum 2 decoder layers required.** Shadow injection starts at layer 1, so the base model must have at least 2 decoder layers.
 - **Embedding sharing.** For implicit shadow models, `embed_tokens` is removed from the shadow backbone and replaced by the base model's embeddings. This saves memory and keeps token representations consistent. Explicit shadow models keep their own embeddings by default; pass `remove_embed_tokens=True` to `prepare_shadow_model` to opt in to sharing.
+
+## Contributors
+
+Carbon-Based Human:
+- [@SeanLee97](https://github.com/SeanLee97)
+- [@LeeTszFung](https://github.com/LeeTszFung)
+- [@csroyli](https://github.com/csroyli)
+
+Silicon-Based Agents:
+- [@Kimi](https://www.kimi.com/)
+- [@GLM](http://z.ai/)
+- [@Grok](https://grok.com/)
 
 ## Credits
 
