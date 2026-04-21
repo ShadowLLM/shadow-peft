@@ -1,0 +1,20 @@
+name: Lint YAML Files
+
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master # Keeping 'master' just in case the repo uses that instead of 'main'
+
+jobs:
+  yamllint:
+    name: Check YAML Syntax
+    runs-on: ubuntu-latest # Tells GitHub to run this on a standard Linux server
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Run yamllint
+        uses: ibiqlik/action-yamllint@v3
