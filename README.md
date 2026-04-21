@@ -9,7 +9,7 @@
 ## How It Works
 
 <p align="center">
-  <img src="assets/ShadowPEFT-framework.png" alt="ShadowPEFT Framework" style="height: 200px" />
+  <img src="assets/ShadowPEFT-framework.png" alt="ShadowPEFT Framework" style="width: 70%; height: auto;" />
 </p>
 
 ```
