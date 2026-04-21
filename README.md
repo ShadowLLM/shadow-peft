@@ -1,6 +1,15 @@
 # ShadowPEFT
 
-**ShadowPEFT** is a parameter-efficient fine-tuning (PEFT) framework that augments a frozen large base model with a lightweight, centralized, and pretrainable *Shadow* network. The shadow network runs in parallel with the base model, injecting learned corrections into each decoder layer to enable effective adaptation with a fraction of the parameters. Once jointly trained with the base model, the shadow network can be detached and deployed independently, benefiting edge computing scenarios.
+**ShadowPEFT** is a parameter-efficient fine-tuning (PEFT) framework that augments a frozen large base model with a lightweight, centralized, and pretrainable *Shadow* network. The shadow network runs in parallel with the base model, injecting learned corrections into each decoder layer to enable effective adaptation with a fraction of the parameters. 
+
+Since the shadow module is architecturally decoupled from the backbone, it can be trained, stored, and deployed as a standalone component, benefiting edge computing. This enables two appealing properties that are difficult to obtain with standard LoRA-style PEFT. 
+* First, the shadow can be attached or detached without modifying the frozen backbone weights, *enabling modular deployment and independent versioning of adaptation modules*.
+* Second, *the shadow model can be initialized from a smaller pretrained model*, allowing a compact model to serve as a reusable adaptation module for a larger backbone.
+  
+For example, a smaller model such as ```Qwen-0.5B``` can serve as the shadow model for a larger backbone like ```Qwen-8B```. 
+In this configuration, shadow model's adaptation capacity can be reused across model scales. 
+This perspective expands PEFT beyond lightweight parameter injection toward reusable, cross-scale adaptation dynamics. 
+
 
 <p align="center">
   <img src="assets/ShadowPEFT-preview.png" alt="ShadowPEFT Preview" />
