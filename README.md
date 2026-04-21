@@ -41,7 +41,7 @@ Three trainable components control the adaptation:
 - [Examples](#examples)
 - [Usage](#usage)
   - [1. Implicit Shadow Model](#1-implicit-shadow-model)
-  - [2. Explicit Shadow Model (cross-architecture)](#2-explicit-shadow-model-cross-architecture)
+  - [2. Explicit Shadow Model (cross-architecture)](#2-explicit-shadow-model-recommendation)
   - [3. ShadowForCausalLM — generation & training](#3-shadowforcausallm--generation--training)
   - [4. ShadowForSequenceClassification](#4-shadowforsequenceclassification)
   - [5. AutoModelForCausalLMWithHiddenProjection](#5-automodelforcausallmwithhiddenprojection)
