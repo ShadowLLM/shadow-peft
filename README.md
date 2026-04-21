@@ -8,6 +8,10 @@
 
 ## How It Works
 
+<p align="center">
+  <img src="assets/ShadowPEFT-framework.png" alt="ShadowPEFT Framework" style="height: 200px" />
+</p>
+
 ```
 Input
   │
@@ -20,10 +24,6 @@ Input
          layer_2 ◄── ShadowInjection(hidden_1, shadow[1]) ─────────► ...
          ...        [ShadowUpdate updates shadow state each step]
 ```
-
-<p align="center">
-  <img src="assets/ShadowPEFT-framework.png" alt="ShadowPEFT Framework" style="height: 200px" />
-</p>
 
 Three trainable components control the adaptation:
 
