@@ -22,7 +22,7 @@ Input
 ```
 
 <p align="center">
-  <img src="assets/ShadowPEFT-framework.png" alt="ShadowPEFT Framework" />
+  <img src="assets/ShadowPEFT-framework.png" alt="ShadowPEFT Framework" style="height: 300px" />
 </p>
 
 Three trainable components control the adaptation:
