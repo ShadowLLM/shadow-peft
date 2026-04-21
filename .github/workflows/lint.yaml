@@ -12,5 +12,12 @@ jobs:
     - uses: actions/checkout@v3
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v3
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
       run: |
-        ruff check .
+        python -m pip install --upgrade uv
+        uv pip install ruff --system
+    - name: Analysing the code with ruff
+      run: |
+        ruff check src
